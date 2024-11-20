@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Alert, Image, SafeAreaView, StatusBar } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import ApiService from '../services/api';
 
 export default function LoginScreen() {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
-  const navigation = useNavigation();
+  const router = useRouter();
 
   const handleLogin = async () => {
     if (!phoneNumber || !password) {
@@ -16,15 +17,9 @@ export default function LoginScreen() {
     }
 
     try {
-      const response = await fetch('http://192.168.18.171:3000/api/users/login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          phone: phoneNumber,
-          password: password,
-        }),
+      const response = await ApiService.post('/users/login', {
+        phone: phoneNumber,
+        password: password,
       });
 
       const data = await response.json();
@@ -33,15 +28,12 @@ export default function LoginScreen() {
         throw new Error(data.message || 'Login failed');
       }
 
-      // Store token and user data
       await AsyncStorage.setItem('userToken', data.token);
       await AsyncStorage.setItem('userData', JSON.stringify(data.user));
 
-      // Check user role and status
       if (data.user.role === 'vendor') {
         if (data.redirectTo === 'CNICVerificationScreen') {
-          // Registration not complete, redirect to CNIC verification
-          navigation.navigate('CNICVerificationScreen' as never);
+          router.push('/CNICVerificationScreen');
           return;
         }
 
@@ -55,7 +47,7 @@ export default function LoginScreen() {
           Alert.alert(
             'Account Under Review',
             'Your account is still under review. Please wait for admin approval.',
-            [{ text: 'OK', onPress: () => navigation.navigate('WelcomeScreen' as never) }]
+            [{ text: 'OK', onPress: () => router.push('/WelcomeScreen') }]
           );
           return;
         }
@@ -64,7 +56,7 @@ export default function LoginScreen() {
           Alert.alert(
             'Account Rejected',
             'Your account verification was rejected. Please contact support.',
-            [{ text: 'OK', onPress: () => navigation.navigate('WelcomeScreen' as never) }]
+            [{ text: 'OK', onPress: () => router.push('/WelcomeScreen') }]
           );
           return;
         }
@@ -72,15 +64,15 @@ export default function LoginScreen() {
         if (vendor.verificationStatus === 'approved' && 
             vendor.backgroundCheckStatus === 'passed' && 
             vendor.registrationStatus === 'complete') {
-          // All checks passed, navigate to main dashboard
-          navigation.navigate('TabLayout' as never);
+          router.push('/(tabs)');
           return;
         }
       }
 
       Alert.alert('Error', 'Invalid account type or status');
     } catch (error) {
-      Alert.alert('Error', error.message || 'Failed to login');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to login';
+      Alert.alert('Error', errorMessage);
       console.error('Login error:', error);
     }
   };
@@ -209,7 +201,7 @@ export default function LoginScreen() {
             marginTop: 24
           }}>
             <Text style={{ color: '#666B8F' }}>Don't have an account? </Text>
-            <TouchableOpacity onPress={() => navigation.navigate('RegisterScreen' as never)}>
+            <TouchableOpacity onPress={() => router.push('/RegisterScreen')}>
               <Text style={{ color: '#4E60FF', fontWeight: '600' }}>Register</Text>
             </TouchableOpacity>
           </View>

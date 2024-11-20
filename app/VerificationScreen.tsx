@@ -8,9 +8,10 @@ type RouteParams = {
   name: string;
   phoneNumber: string;
   password: string;
-  location: string;
+  location: any;
   role: string;
   serviceArea: number;
+  vendorCategoryId: number;
 };
 
 export default function VerificationScreen() {
@@ -18,8 +19,9 @@ export default function VerificationScreen() {
   const [timer, setTimer] = useState(60);
   const navigation = useNavigation();
   const route = useRoute();
-  const { name, phoneNumber, password, location, role, serviceArea } = route.params as RouteParams;
+  const { name, phoneNumber, password, location, role, serviceArea, vendorCategoryId } = route.params as RouteParams;
   const inputRefs = useRef<(TextInput | null)[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
     const countdown = setInterval(() => {
@@ -36,8 +38,10 @@ export default function VerificationScreen() {
       return;
     }
 
+    setIsLoading(true);
+
     try {
-      const API_URL = 'http://192.168.18.171:3000';
+      const API_URL = 'http://192.168.43.144:3000';
       
       const requestData = { 
         name, 
@@ -46,7 +50,8 @@ export default function VerificationScreen() {
         location,
         role, 
         code: verificationCode,
-        serviceArea: serviceArea
+        serviceArea,
+        vendorCategoryId
       };
 
       console.log('Sending verification request with data:', requestData);
@@ -60,28 +65,28 @@ export default function VerificationScreen() {
         body: JSON.stringify(requestData),
       });
 
-      console.log('Response status:', response.status);
       const responseData = await response.json();
-      console.log('Response data:', responseData);
 
-      if (response.ok) {
-        await AsyncStorage.setItem('userToken', responseData.token);
-        await AsyncStorage.setItem('userData', JSON.stringify(responseData.user));
-
-        Alert.alert('Success', 'User verified. Please complete CNIC verification.', [
-          {
-            text: 'OK',
-            onPress: () => {
-              navigation.navigate('CNICVerificationScreen' as never);
-            }
-          }
-        ]);
-      } else {
-        Alert.alert('Error', responseData.message || 'Invalid verification code');
+      if (!response.ok) {
+        throw new Error(responseData.message || 'Verification failed');
       }
-    } catch (error) {
-      Alert.alert('Error', 'An error occurred during verification');
+
+      await AsyncStorage.setItem('userToken', responseData.token);
+      await AsyncStorage.setItem('userData', JSON.stringify(responseData.user));
+
+      Alert.alert('Success', 'User verified. Please complete CNIC verification.', [
+        {
+          text: 'OK',
+          onPress: () => {
+            navigation.navigate('CNICVerificationScreen' as never);
+          }
+        }
+      ]);
+    } catch (error: any) {
+      Alert.alert('Error', error.message || 'An error occurred during verification');
       console.error('Error details:', error);
+    } finally {
+      setIsLoading(false);
     }
   };
 

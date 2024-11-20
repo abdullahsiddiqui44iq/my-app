@@ -5,6 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import ApiService from '../services/api';
 
 type ImageAsset = {
   uri: string;
@@ -113,14 +114,12 @@ export default function CNICVerificationScreen() {
 
       console.log('Uploading images...', { frontUri: frontImage.uri, backUri: backImage.uri });
 
-      const response = await fetch('http://192.168.18.171:3000/api/users/upload-cnic', {
-        method: 'POST',
+      const response = await ApiService.post('/users/upload-cnic', formData, {
         headers: {
           'Accept': 'application/json',
           'Content-Type': 'multipart/form-data',
           'Authorization': `Bearer ${token}`,
-        },
-        body: formData,
+        }
       });
 
       console.log('Upload response status:', response.status);

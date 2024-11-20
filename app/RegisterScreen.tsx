@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, Alert, Image, ScrollView, SafeAreaView, StatusBar } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, Alert, Image, ScrollView, SafeAreaView, StatusBar, StyleSheet } from 'react-native';
 import * as Location from 'expo-location';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Slider from '@react-native-community/slider';
+import ApiService from '../services/api';
 
 type RootStackParamList = {
   WelcomeScreen: undefined;
@@ -17,8 +18,16 @@ type RootStackParamList = {
     role: string;
     testCode?: string;
     serviceArea: number;
+    vendorCategoryId: number;
   };
 };
+
+interface VendorCategory {
+  id: number;
+  name: string;
+  description: string;
+  icon: string;
+}
 
 export default function RegisterScreen() {
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -28,6 +37,11 @@ export default function RegisterScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [serviceArea, setServiceArea] = useState(5); // Default 5km
+  const [categories, setCategories] = useState<VendorCategory[]>([]);
+  const [vendorCategory, setVendorCategory] = useState<string>('');
+  const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
+  const [hasSmartphone, setHasSmartphone] = useState(true);
+  const [phoneForCalls, setPhoneForCalls] = useState('');
 
   useEffect(() => {
     const requestLocationPermission = async () => {
@@ -51,6 +65,21 @@ export default function RegisterScreen() {
     requestLocationPermission();
   }, [navigation]);
 
+  useEffect(() => {
+    loadCategories();
+  }, []);
+
+  const loadCategories = async () => {
+    try {
+      const response = await ApiService.get('/users/vendor-categories');
+      const data = await response.json();
+      setCategories(data);
+    } catch (error) {
+      console.error('Error loading categories:', error);
+      Alert.alert('Error', 'Failed to load categories. Please try again later.');
+    }
+  };
+
   const handleSendVerificationCode = async () => {
     if (!name || !phoneNumber || !password || !confirmPassword || !location) {
       Alert.alert('Please fill all fields and allow location access');
@@ -71,16 +100,11 @@ export default function RegisterScreen() {
 
     try {
       const isDevelopment = false;
-      const API_URL = 'http://192.168.18.171:3000';
+      const API_URL = 'http://192.168.69.216:3000';
 
       // Always send verification code request first
-      const response = await fetch(`${API_URL}/api/users/send-verification-code`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify({ phone: phoneNumber }),
+      const response = await ApiService.post('/users/send-verification-code', { 
+        phone: phoneNumber 
       });
 
       if (!response.ok) {
@@ -95,8 +119,8 @@ export default function RegisterScreen() {
         password, 
         location,
         role: 'vendor',
-        testCode: isDevelopment ? '1234' : undefined,
-        serviceArea: serviceArea
+        serviceArea,
+        vendorCategoryId: parseInt(vendorCategory)
       });
 
     } catch (error) {
@@ -300,24 +324,55 @@ export default function RegisterScreen() {
               </View>
             </View>
 
+            {/* Service Category Selector */}
+            <View style={{ marginBottom: 24 }}>
+              <Text style={styles.label}>Service Category</Text>
+              <TouchableOpacity
+                style={styles.categorySelector}
+                onPress={() => {
+                  console.log('Dropdown pressed');
+                  setShowCategoryDropdown(!showCategoryDropdown);
+                }}
+              >
+                <Text style={styles.categoryText}>
+                  {vendorCategory ? categories.find(c => c.id.toString() === vendorCategory)?.name : 'Select your service'}
+                </Text>
+                <Ionicons 
+                  name={showCategoryDropdown ? "chevron-up" : "chevron-down"} 
+                  size={20} 
+                  color="#666B8F" 
+                />
+              </TouchableOpacity>
+
+              {showCategoryDropdown && (
+                <View style={styles.dropdownList}>
+                  {categories.map((category) => (
+                    <TouchableOpacity
+                      key={category.id}
+                      style={styles.dropdownItem}
+                      onPress={() => {
+                        console.log('Category selected:', category.name);
+                        setVendorCategory(category.id.toString());
+                        setShowCategoryDropdown(false);
+                      }}
+                    >
+                      <Text style={[
+                        styles.dropdownItemText,
+                        vendorCategory === category.id.toString() && styles.selectedItemText
+                      ]}>
+                        {category.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+
             {/* Service Area Selector */}
             <View style={{ marginBottom: 24 }}>
-              <Text style={{ 
-                fontSize: 14,
-                fontWeight: '600',
-                color: '#1E2243',
-                marginBottom: 8
-              }}>Service Area Radius</Text>
-              
+              <Text style={styles.label}>Service Area Radius</Text>
               <View style={{ alignItems: 'center' }}>
-                <Text style={{ 
-                  fontSize: 24,
-                  fontWeight: 'bold',
-                  color: '#4E60FF',
-                  marginBottom: 8
-                }}>
-                  {serviceArea} km
-                </Text>
+                <Text style={styles.serviceAreaValue}>{serviceArea} km</Text>
                 <Slider
                   style={{ width: '100%', height: 40 }}
                   minimumValue={1}
@@ -329,14 +384,53 @@ export default function RegisterScreen() {
                   maximumTrackTintColor="#E2E4ED"
                   thumbTintColor="#4E60FF"
                 />
-                <Text style={{ 
-                  fontSize: 12,
-                  color: '#666B8F',
-                  textAlign: 'center'
-                }}>
+                <Text style={styles.serviceAreaHint}>
                   Select the radius within which you'll provide services
                 </Text>
               </View>
+            </View>
+
+            {/* Smartphone Option */}
+            <View style={{ marginBottom: 24 }}>
+              <Text style={styles.label}>Do you have a smartphone?</Text>
+              <View style={styles.radioGroup}>
+                <TouchableOpacity 
+                  style={[
+                    styles.radioButton, 
+                    hasSmartphone && styles.radioButtonSelected
+                  ]}
+                  onPress={() => setHasSmartphone(true)}
+                >
+                  <Text style={[
+                    styles.radioText,
+                    hasSmartphone && styles.radioTextSelected
+                  ]}>Yes</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={[
+                    styles.radioButton, 
+                    !hasSmartphone && styles.radioButtonSelected
+                  ]}
+                  onPress={() => setHasSmartphone(false)}
+                >
+                  <Text style={[
+                    styles.radioText,
+                    !hasSmartphone && styles.radioTextSelected
+                  ]}>No</Text>
+                </TouchableOpacity>
+              </View>
+              {!hasSmartphone && (
+                <View style={styles.phoneInput}>
+                  <Text style={styles.label}>Phone Number for Calls</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={phoneForCalls}
+                    onChangeText={setPhoneForCalls}
+                    placeholder="Enter phone number for receiving calls"
+                    keyboardType="phone-pad"
+                  />
+                </View>
+              )}
             </View>
 
             {/* Submit Button */}
@@ -387,3 +481,101 @@ export default function RegisterScreen() {
     </SafeAreaView>
   );
 }
+
+const styles = StyleSheet.create({
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#1E2243',
+    marginBottom: 8,
+  },
+  categorySelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderColor: '#E2E4ED',
+    borderRadius: 12,
+    backgroundColor: '#F8F9FF',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  categoryText: {
+    fontSize: 16,
+    color: '#1E2243',
+  },
+  dropdownList: {
+    marginTop: 4,
+    backgroundColor: 'white',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E4ED',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  dropdownItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E4ED',
+  },
+  dropdownItemText: {
+    fontSize: 16,
+    color: '#1E2243',
+  },
+  selectedItemText: {
+    color: '#4E60FF',
+    fontWeight: '600',
+  },
+  serviceAreaValue: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#4E60FF',
+    marginBottom: 8,
+  },
+  serviceAreaHint: {
+    fontSize: 12,
+    color: '#666B8F',
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  radioGroup: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginTop: 8,
+  },
+  radioButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 24,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#E2E4ED',
+  },
+  radioButtonSelected: {
+    backgroundColor: '#4E60FF',
+    borderColor: '#4E60FF',
+  },
+  radioText: {
+    color: '#666B8F',
+    fontSize: 16,
+  },
+  radioTextSelected: {
+    color: '#FFFFFF',
+  },
+  phoneInput: {
+    marginTop: 16,
+  },
+  input: {
+    height: 50,
+    borderWidth: 1,
+    borderColor: '#E2E4ED',
+    borderRadius: 12,
+    backgroundColor: '#F8F9FF',
+    paddingHorizontal: 16,
+    fontSize: 16,
+    color: '#1E2243',
+  }
+});
