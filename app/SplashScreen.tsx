@@ -47,7 +47,7 @@ export default function SplashScreen() {
     <View style={styles.container}>
       <Animated.View style={[styles.logoContainer, logoStyle]}>
         <Image
-          source={require('../assets/images/icon.png')}  // You'll need to add your logo
+          source={require('../assets/images/logo2.png')}  // You'll need to add your logo
           style={styles.logo}
           resizeMode="contain"
         />

@@ -6,6 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ApiService from '../services/api';
+import OCRService from '../services/ocrService';
 
 type ImageAsset = {
   uri: string;
@@ -41,6 +42,8 @@ export default function CNICVerificationScreen() {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const navigation = useNavigation();
   const [isLoading, setIsLoading] = useState(false);
+  const [ocrProcessing, setOcrProcessing] = useState(false);
+  const [cnicDetails, setCnicDetails] = useState<any>(null);
 
   React.useEffect(() => {
     (async () => {
@@ -49,102 +52,205 @@ export default function CNICVerificationScreen() {
     })();
   }, []);
 
+  const processCNICImage = async (imageUri: string) => {
+    setOcrProcessing(true);
+    try {
+      const result = await OCRService.extractCNICDetails(imageUri);
+      console.log('Processed CNIC Details:', result);
+      
+      if (result.success && result.details) {
+        // Store CNIC details for later upload
+        setCnicDetails(result.details);
+        
+        // Show extracted details to user
+        Alert.alert(
+          'CNIC Details Extracted',
+          `Name: ${result.details.name}\n` +
+          `CNIC: ${result.details.identityNumber}\n` +
+          `Father's Name: ${result.details.fatherName}\n` +
+          `Date of Birth: ${result.details.dateOfBirth}\n` +
+          `Date of Expiry: ${result.details.dateOfExpiry}\n` +
+          `Gender: ${result.details.gender}`,
+          [{ text: 'OK' }]
+        );
+        
+        return result.details;
+      } else {
+        Alert.alert(
+          'Retry Needed',
+          'Could not read CNIC details. Please ensure:\n\n' +
+          '• CNIC is well-lit\n' +
+          '• Text is clearly visible\n' +
+          '• Camera is focused on the text\n' +
+          '• CNIC is properly aligned'
+        );
+        return null;
+      }
+    } catch (error) {
+      console.error('OCR processing error:', error);
+      Alert.alert(
+        'OCR Error',
+        'Failed to process the image. Please try again with better lighting and focus.'
+      );
+      return null;
+    } finally {
+      setOcrProcessing(false);
+    }
+  };
+
   const takePicture = async (side: 'front' | 'back') => {
     try {
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        quality: 0.8,
+        quality: 1,
         base64: true,
+        allowsEditing: true,
+        aspect: [3, 2], // CNIC aspect ratio
       });
 
       if (!result.canceled && result.assets[0]) {
-        const asset: ImageAsset = result.assets[0];
-        const imageInfo: ImageInfo = {
+        const asset = result.assets[0];
+        console.log('Captured image info:', {
           uri: asset.uri,
-          type: 'image/jpeg',
-          base64: asset.base64 || null,
-        };
-        
+          width: asset.width,
+          height: asset.height,
+          type: asset.type,
+          fileSize: asset.fileSize
+        });
+
         if (side === 'front') {
-          setFrontImage(imageInfo);
+          setIsLoading(true);
+          try {
+            console.log('Processing front image...');
+            const details = await processCNICImage(asset.uri);
+            
+            if (details) {
+              setFrontImage({
+                uri: asset.uri,
+                type: 'image/jpeg',
+                base64: asset.base64 || null,
+              });
+            }
+          } finally {
+            setIsLoading(false);
+          }
         } else {
-          setBackImage(imageInfo);
+          setBackImage({
+            uri: asset.uri,
+            type: 'image/jpeg',
+            base64: asset.base64 || null,
+          });
         }
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to take picture');
       console.error('Camera error:', error);
+      Alert.alert(
+        'Error',
+        'Failed to process image. Please try again with better lighting and focus.'
+      );
     }
   };
 
+  const formatDateForBackend = (dateStr: string) => {
+    // Convert from DD.MM.YYYY to YYYY-MM-DD
+    const [day, month, year] = dateStr.split('.');
+    return `${year}-${month}-${day}`;
+  };
+
   const uploadImages = async () => {
-    if (!frontImage || !backImage) {
+    if (!frontImage || !backImage || !cnicDetails) {
       Alert.alert('Error', 'Please capture both sides of your CNIC');
       return;
     }
 
-    setIsLoading(true); // Start loading
+    setIsLoading(true);
 
     try {
       const token = await AsyncStorage.getItem('userToken');
-      
       const formData = new FormData();
 
+      // Append images with correct field names
       formData.append('frontImage', {
         uri: frontImage.uri,
         type: 'image/jpeg',
-        name: 'front_cnic.jpg',
-        size: undefined,
-        lastModified: undefined,
-        lastModifiedDate: undefined,
-        path: undefined,
-        webkitRelativePath: undefined
+        name: 'frontImage.jpg'
       } as any);
       
       formData.append('backImage', {
         uri: backImage.uri,
         type: 'image/jpeg',
-        name: 'back_cnic.jpg',
-        size: undefined,
-        lastModified: undefined,
-        lastModifiedDate: undefined,
-        path: undefined,
-        webkitRelativePath: undefined
+        name: 'backImage.jpg'
       } as any);
 
-      console.log('Uploading images...', { frontUri: frontImage.uri, backUri: backImage.uri });
+      // Format dates and prepare CNIC details
+      const parsedCnicDetails = {
+        identityNumber: cnicDetails.identityNumber?.replace(/\s+/g, ''), // Remove any spaces
+        name: cnicDetails.name?.trim(),
+        fatherName: cnicDetails.fatherName?.trim(),
+        dateOfBirth: formatDateForBackend(cnicDetails.dateOfBirth),
+        dateOfExpiry: formatDateForBackend(cnicDetails.dateOfExpiry),
+        gender: cnicDetails.gender?.trim()
+      };
 
-      const response = await ApiService.post('/users/upload-cnic', formData, {
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'multipart/form-data',
-          'Authorization': `Bearer ${token}`,
+      // Validate before sending
+      if (!parsedCnicDetails.identityNumber || 
+          !parsedCnicDetails.name ||
+          !parsedCnicDetails.fatherName ||
+          !parsedCnicDetails.dateOfBirth ||
+          !parsedCnicDetails.dateOfExpiry ||
+          !parsedCnicDetails.gender) {
+        throw new Error('Missing required CNIC details');
+      }
+
+      // Validate CNIC format (should be like 42201-8345146-7)
+      if (!/^\d{5}-\d{7}-\d$/.test(parsedCnicDetails.identityNumber)) {
+        throw new Error('Invalid CNIC number format');
+      }
+
+      // Log the data being sent
+      console.log('Sending CNIC details:', parsedCnicDetails);
+      
+      // Append CNIC details as a string
+      formData.append('cnicDetails', JSON.stringify(parsedCnicDetails));
+
+      try {
+        const response = await ApiService.post('/users/upload-cnic', formData, {
+          headers: {
+            'Authorization': `Bearer ${token}`,
+          }
+        });
+
+        console.log('Upload response status:', response.status);
+        
+        if (response.ok) {
+          Alert.alert(
+            'Success',
+            'Your CNIC images have been uploaded. Your account is under review and will be activated within 24 hours.',
+            [
+              {
+                text: 'OK',
+                onPress: () => navigation.navigate('WelcomeScreen' as never),
+              },
+            ]
+          );
+        } else {
+          throw new Error('Failed to upload CNIC');
         }
-      });
-
-      console.log('Upload response status:', response.status);
-      const responseData = await response.json();
-      console.log('Upload response:', responseData);
-
-      if (response.ok) {
+      } catch (error) {
+        console.error('Upload error:', error);
         Alert.alert(
-          'Success',
-          'Your CNIC images have been uploaded. Your account is under review and will be activated within 24 hours.',
-          [
-            {
-              text: 'OK',
-              onPress: () => navigation.navigate('WelcomeScreen' as never),
-            },
-          ]
+          'Upload Failed',
+          error instanceof Error ? error.message : 'Failed to upload CNIC. Please try again.'
         );
-      } else {
-        throw new Error(responseData.error || 'Failed to upload images');
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to upload images. Please try again.');
-      console.error('Error uploading:', error);
+      console.error('Error preparing upload:', error);
+      Alert.alert(
+        'Upload Failed', 
+        error instanceof Error ? error.message : 'Failed to prepare upload. Please try again.'
+      );
     } finally {
-      setIsLoading(false); // Stop loading regardless of outcome
+      setIsLoading(false);
     }
   };
 

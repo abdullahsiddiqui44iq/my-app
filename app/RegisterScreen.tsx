@@ -19,6 +19,9 @@ type RootStackParamList = {
     testCode?: string;
     serviceArea: number;
     vendorCategoryId: number;
+    servicePrices: ServicePrice[];
+    hasSmartphone: boolean;
+    phoneForCalls: string;
   };
 };
 
@@ -27,6 +30,17 @@ interface VendorCategory {
   name: string;
   description: string;
   icon: string;
+}
+
+interface Service {
+  id: number;
+  name: string;
+  description: string;
+}
+
+interface ServicePrice {
+  serviceId: number;
+  price: string;
 }
 
 export default function RegisterScreen() {
@@ -42,6 +56,8 @@ export default function RegisterScreen() {
   const [showCategoryDropdown, setShowCategoryDropdown] = useState(false);
   const [hasSmartphone, setHasSmartphone] = useState(true);
   const [phoneForCalls, setPhoneForCalls] = useState('');
+  const [services, setServices] = useState<Service[]>([]);
+  const [servicePrices, setServicePrices] = useState<ServicePrice[]>([]);
 
   useEffect(() => {
     const requestLocationPermission = async () => {
@@ -71,8 +87,11 @@ export default function RegisterScreen() {
 
   const loadCategories = async () => {
     try {
+      console.log('Fetching categories...');
       const response = await ApiService.get('/users/vendor-categories');
+      console.log('Response status:', response.status);
       const data = await response.json();
+      console.log('Categories data:', data);
       setCategories(data);
     } catch (error) {
       console.error('Error loading categories:', error);
@@ -80,11 +99,54 @@ export default function RegisterScreen() {
     }
   };
 
+  const loadServicesForCategory = async (categoryId: string) => {
+    try {
+      const response = await ApiService.get(`/users/services?categoryId=${categoryId}`);
+      const data = await response.json();
+      if (data.success && data.services) {
+        setServices(data.services);
+        setServicePrices(data.services.map((service: Service) => ({
+          serviceId: service.id,
+          price: ''
+        })));
+      } else {
+        console.error('Invalid response format:', data);
+        Alert.alert('Error', 'Failed to load services for this category');
+      }
+    } catch (error) {
+      console.error('Error loading services:', error);
+      Alert.alert('Error', 'Failed to load services for this category');
+    }
+  };
+
+  const handleCategorySelect = (categoryId: string) => {
+    console.log('Category selected:', categoryId);
+    setVendorCategory(categoryId);
+    setShowCategoryDropdown(false);
+    loadServicesForCategory(categoryId);
+  };
+
+  const validatePrices = () => {
+    const hasEmptyPrices = servicePrices.some(sp => !sp.price);
+    const hasInvalidPrices = servicePrices.some(sp => isNaN(Number(sp.price)) || Number(sp.price) <= 0);
+    
+    if (hasEmptyPrices || hasInvalidPrices) {
+      Alert.alert('Invalid Prices', 'Please enter valid prices for all services');
+      return false;
+    }
+    return true;
+  };
+
   const handleSendVerificationCode = async () => {
-    if (!name || !phoneNumber || !password || !confirmPassword || !location) {
+    if (!name || !phoneNumber || !password || !confirmPassword || !location || !vendorCategory) {
       Alert.alert('Please fill all fields and allow location access');
       return;
     }
+    
+    if (!validatePrices()) {
+      return;
+    }
+
     if (password !== confirmPassword) {
       Alert.alert('Passwords do not match');
       return;
@@ -100,9 +162,6 @@ export default function RegisterScreen() {
 
     try {
       const isDevelopment = false;
-      const API_URL = 'http://192.168.69.216:3000';
-
-      // Always send verification code request first
       const response = await ApiService.post('/users/send-verification-code', { 
         phone: phoneNumber 
       });
@@ -112,7 +171,6 @@ export default function RegisterScreen() {
         throw new Error(errorData.message || 'Failed to send verification code');
       }
 
-      // After successful verification code storage, navigate to verification screen
       navigation.navigate('VerificationScreen', { 
         name, 
         phoneNumber, 
@@ -120,7 +178,13 @@ export default function RegisterScreen() {
         location,
         role: 'vendor',
         serviceArea,
-        vendorCategoryId: parseInt(vendorCategory)
+        vendorCategoryId: parseInt(vendorCategory),
+        servicePrices: servicePrices.map(sp => ({
+          ...sp,
+          price: Number(sp.price)
+        })),
+        hasSmartphone,
+        phoneForCalls: hasSmartphone ? phoneNumber : phoneForCalls
       });
 
     } catch (error) {
@@ -164,7 +228,7 @@ export default function RegisterScreen() {
             paddingHorizontal: 24
           }}>
             <Image
-              source={require('../assets/images/register.png')}
+              source={require('../assets/images/logo2.png')}
               style={{ 
                 width: '80%',
                 height: 200,
@@ -354,6 +418,7 @@ export default function RegisterScreen() {
                         console.log('Category selected:', category.name);
                         setVendorCategory(category.id.toString());
                         setShowCategoryDropdown(false);
+                        loadServicesForCategory(category.id.toString());
                       }}
                     >
                       <Text style={[
@@ -367,6 +432,35 @@ export default function RegisterScreen() {
                 </View>
               )}
             </View>
+
+            {services.length > 0 && (
+              <View style={{ marginBottom: 24 }}>
+                <Text style={styles.label}>Set Your Service Prices</Text>
+                {services.map((service) => (
+                  <View key={service.id} style={styles.servicePriceContainer}>
+                    <Text style={styles.serviceNameText}>{service.name}</Text>
+                    <View style={styles.priceInputContainer}>
+                      <Text style={styles.currencyText}>Rs.</Text>
+                      <TextInput
+                        style={styles.priceInput}
+                        keyboardType="numeric"
+                        placeholder="Enter price"
+                        value={servicePrices.find(sp => sp.serviceId === service.id)?.price}
+                        onChangeText={(text) => {
+                          setServicePrices(prev => 
+                            prev.map(sp => 
+                              sp.serviceId === service.id 
+                                ? { ...sp, price: text }
+                                : sp
+                            )
+                          );
+                        }}
+                      />
+                    </View>
+                  </View>
+                ))}
+              </View>
+            )}
 
             {/* Service Area Selector */}
             <View style={{ marginBottom: 24 }}>
@@ -577,5 +671,38 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     fontSize: 16,
     color: '#1E2243',
-  }
+  },
+  servicePriceContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E2E4ED',
+  },
+  serviceNameText: {
+    fontSize: 16,
+    color: '#1E2243',
+    flex: 1,
+  },
+  priceInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8F9FF',
+    borderWidth: 1,
+    borderColor: '#E2E4ED',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+  },
+  currencyText: {
+    fontSize: 16,
+    color: '#666B8F',
+    marginRight: 4,
+  },
+  priceInput: {
+    width: 100,
+    height: 40,
+    fontSize: 16,
+    color: '#1E2243',
+  },
 });

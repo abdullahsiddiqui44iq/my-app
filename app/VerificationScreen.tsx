@@ -3,6 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, Alert, StyleSheet, SafeAreaVie
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import ApiService from '../services/api';
 
 type RouteParams = {
   name: string;
@@ -12,6 +13,12 @@ type RouteParams = {
   role: string;
   serviceArea: number;
   vendorCategoryId: number;
+  servicePrices: Array<{
+    serviceId: number;
+    price: number;
+  }>;
+  hasSmartphone: boolean;
+  phoneForCalls: string;
 };
 
 export default function VerificationScreen() {
@@ -19,7 +26,7 @@ export default function VerificationScreen() {
   const [timer, setTimer] = useState(60);
   const navigation = useNavigation();
   const route = useRoute();
-  const { name, phoneNumber, password, location, role, serviceArea, vendorCategoryId } = route.params as RouteParams;
+  const { name, phoneNumber, password, location, role, serviceArea, vendorCategoryId, servicePrices, hasSmartphone, phoneForCalls } = route.params as RouteParams;
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -41,8 +48,6 @@ export default function VerificationScreen() {
     setIsLoading(true);
 
     try {
-      const API_URL = 'http://192.168.43.144:3000';
-      
       const requestData = { 
         name, 
         phone: phoneNumber, 
@@ -51,26 +56,22 @@ export default function VerificationScreen() {
         role, 
         code: verificationCode,
         serviceArea,
-        vendorCategoryId
+        vendorCategoryId,
+        servicePrices,
+        hasSmartphone,
+        phoneForCalls
       };
 
       console.log('Sending verification request with data:', requestData);
 
-      const response = await fetch(`${API_URL}/api/users/verify-code-and-create-user`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-        body: JSON.stringify(requestData),
-      });
-
-      const responseData = await response.json();
+      const response = await ApiService.post('/users/verify-code-and-create-user', requestData);
 
       if (!response.ok) {
-        throw new Error(responseData.message || 'Verification failed');
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Verification failed');
       }
 
+      const responseData = await response.json();
       await AsyncStorage.setItem('userToken', responseData.token);
       await AsyncStorage.setItem('userData', JSON.stringify(responseData.user));
 
@@ -82,6 +83,7 @@ export default function VerificationScreen() {
           }
         }
       ]);
+      
     } catch (error: any) {
       Alert.alert('Error', error.message || 'An error occurred during verification');
       console.error('Error details:', error);
