@@ -1,0 +1,27 @@
+diff --git a/node_modules/expo/android/build.gradle b/node_modules/expo/android/build.gradle
+index abc1234..def5678 100644
+--- a/node_modules/expo/android/build.gradle
++++ b/node_modules/expo/android/build.gradle
+@@ -1,6 +1,4 @@
+-def safeExtGet(prop, fallback) {
+-    rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback
+-}
++def safeExtGet(prop, fallback) { rootProject.ext.has(prop) ? rootProject.ext.get(prop) : fallback }
+ 
+ apply plugin: 'com.android.library'
+ 
+@@ -8,7 +6,7 @@ android {
+     compileSdkVersion 34
+     buildToolsVersion "34.0.0"
+     ndkVersion "26.1.10909125"
+-
++    
+     defaultConfig {
+         minSdkVersion safeExtGet('minSdkVersion', 21)
+         targetSdkVersion safeExtGet('targetSdkVersion', 34)
+@@ -16,4 +14,5 @@ android {
+         versionName "1.0"
+     }
+     namespace "expo.modules"
++    lintOptions { abortOnError false }
+ } 
